@@ -1,8 +1,9 @@
-# cloud_agents
+# cloud-browser-mcp
 
-Self-hosted "browser-agent in the cloud," done right: **N independent
-[BrowserOS](https://github.com/browseros-ai/BrowserOS) instances in Docker, each
-exposing its built-in MCP server, all wired into your local Claude Desktop as
+Use a real browser **remotely**, from your local Claude Desktop, over MCP.
+Self-hosted: **N independent
+[BrowserOS](https://github.com/browseros-ai/BrowserOS) instances in Docker,
+each exposing its built-in MCP server, all wired into Claude Desktop as
 separate connectors.** You log into your accounts once via a browser-based
 live-view, profile state persists, and Claude drives a real Chromium with your
 sessions intact.
@@ -15,11 +16,11 @@ separate per-token billing, no rented infra. You own the bytes.
 
 ```
 ┌─ your laptop ─────────┐                              ┌─ host running Docker ────────────────────┐
-│  Claude Desktop       │                              │  cloud_agents-browseros-1                │
+│  Claude Desktop       │                              │  cbm-browseros-1                │
 │   mcpServers:         │ ─ stdio ─ npx mcp-remote ──► │   Xvfb + noVNC + Chromium-fork           │
 │     browseros-1: ──┐  │           http://host:9201  │   /data/1/profile  ← cookies, history…   │
-│     browseros-2: ──┼──┼───────────► :9202 ────────► │  cloud_agents-browseros-2                │
-│     browseros-3: ──┘  │             :9203 ────────► │  cloud_agents-browseros-3                │
+│     browseros-2: ──┼──┼───────────► :9202 ────────► │  cbm-browseros-2                │
+│     browseros-3: ──┘  │             :9203 ────────► │  cbm-browseros-3                │
 │                       │                              │   restart: unless-stopped                │
 │  Web browser          │ ─ live-view (noVNC) ──────► │   noVNC ports :6081, :6082, :6083        │
 └───────────────────────┘                              └──────────────────────────────────────────┘
@@ -51,8 +52,8 @@ brew install node
 ### 2. Clone the repo
 
 ```bash
-git clone https://github.com/r-sayar/cloud_agents.git ~/cloud_agents
-cd ~/cloud_agents
+git clone https://github.com/r-sayar/cloud-browser-mcp.git ~/cloud-browser-mcp
+cd ~/cloud-browser-mcp
 ```
 
 ### 3. Drop in the BrowserOS Linux AppImage
@@ -165,7 +166,7 @@ Edit `docker-compose.yml`. Each slot is one service block; add a fourth:
 ```yaml
   browseros-4:
     <<: *browseros-defaults
-    container_name: cloud_agents-browseros-4
+    container_name: cbm-browseros-4
     depends_on: [browseros-1]
     ports: ["9204:9200", "9114:9011", "6084:6080"]
     volumes: ["./data/4:/data"]
@@ -203,7 +204,7 @@ cookies (banks/Google/Apple are blacklisted by default).
 
 ```bash
 pip install -r scripts/requirements.txt
-docker cp scripts/import_cookies.py cloud_agents-browseros-1:/tmp/
+docker cp scripts/import_cookies.py cbm-browseros-1:/tmp/
 docker compose exec browseros-1 pip install browser-cookie3 websockets requests --quiet
 docker compose exec browseros-1 python3 /tmp/import_cookies.py twitter.com github.com
 ```

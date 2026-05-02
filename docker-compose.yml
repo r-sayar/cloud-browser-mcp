@@ -22,7 +22,7 @@ services:
   browseros-1:
     <<: *browseros-defaults
     build: .                  # only one service triggers the build; the rest reuse the image
-    container_name: cloud_agents-browseros-1
+    container_name: cbm-browseros-1
     ports:
       - "9201:9200"           # MCP   — Claude Desktop connector points here
       - "9111:9011"           # CDP
@@ -32,7 +32,7 @@ services:
 
   browseros-2:
     <<: *browseros-defaults
-    container_name: cloud_agents-browseros-2
+    container_name: cbm-browseros-2
     depends_on:
       - browseros-1           # ensures the image build (on browseros-1) finishes first
     ports:
@@ -44,7 +44,7 @@ services:
 
   browseros-3:
     <<: *browseros-defaults
-    container_name: cloud_agents-browseros-3
+    container_name: cbm-browseros-3
     depends_on:
       - browseros-1
     ports:
