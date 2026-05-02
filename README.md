@@ -225,6 +225,13 @@ docker compose up -d
 
 ---
 
+## Contributing
+
+Issues and PRs welcome. The wrapper code is small and intentionally
+unopinionated — most improvements should land cleanly. If you're adding a
+new feature, please update both the README and at least one of the existing
+smoke tests so reviewers can confirm the shape of the change quickly.
+
 ## Layout
 
 ```
@@ -246,6 +253,16 @@ docker compose up -d
 ├── legacy/steel/               # earlier Steel + Chromium prototype, kept for reference
 └── README.md
 ```
+
+## ⚠ Security
+
+The MCP and noVNC services in this repo **ship with no authentication.** That
+is fine for `localhost` on your laptop — and dangerous the moment any port is
+reachable from outside your machine.
+
+**Read [SECURITY.md](SECURITY.md) before you put this on anything other than
+your own laptop.** Short version: lock to `127.0.0.1` only, use Tailscale for
+remote access, or put Caddy + bearer-token auth in front for a public URL.
 
 ## Known caveats
 
