@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  LaunchAgent that brings up the cloud_agents stack at user login.
+  Install:
+    cp launchd/com.cloud-agents.browseros.plist ~/Library/LaunchAgents/
+    /usr/bin/sed -i '' "s|__PROJECT_DIR__|$PWD|g" ~/Library/LaunchAgents/com.cloud-agents.browseros.plist
+    launchctl load ~/Library/LaunchAgents/com.cloud-agents.browseros.plist
+  Uninstall:
+    launchctl unload ~/Library/LaunchAgents/com.cloud-agents.browseros.plist
+    rm ~/Library/LaunchAgents/com.cloud-agents.browseros.plist
+  Logs:
+    tail -f /tmp/cloud_agents.{out,err}.log
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.cloud-agents.browseros</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>__PROJECT_DIR__/scripts/launchd-startup.sh</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>CLOUD_AGENTS_DIR</key>
+        <string>__PROJECT_DIR__</string>
+        <key>PATH</key>
+        <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/cloud_agents.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/cloud_agents.err.log</string>
+</dict>
+</plist>

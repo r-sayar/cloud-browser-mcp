@@ -1,0 +1,14 @@
+.git
+.gitignore
+data
+legacy
+browseros
+scripts/__pycache__
+*.pyc
+.DS_Store
+profile-*.tgz
+README.md
+BROWSEROS.md
+docker-compose.yml
+.dockerignore
+Dockerfile

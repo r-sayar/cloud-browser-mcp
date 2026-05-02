@@ -1,0 +1,55 @@
+# Three independent BrowserOS instances, one container each.
+# Each has its own profile dir, MCP port, CDP port, and noVNC port.
+# Wire each MCP into Claude Desktop as a separate connector and tell Claude
+# which one to use per chat ("for this conversation, use browseros-2").
+#
+# | slot | MCP host port | CDP host port | noVNC host port | profile dir |
+# |------|---------------|---------------|------------------|-------------|
+# |  1   |     9201      |     9111      |       6081       | ./data/1    |
+# |  2   |     9202      |     9112      |       6082       | ./data/2    |
+# |  3   |     9203      |     9113      |       6083       | ./data/3    |
+
+x-browseros-defaults: &browseros-defaults
+  image: cloud_agents/browseros:latest
+  shm_size: "2gb"
+  cap_add:
+    - SYS_ADMIN
+  security_opt:
+    - seccomp:unconfined
+  restart: unless-stopped
+
+services:
+  browseros-1:
+    <<: *browseros-defaults
+    build: .                  # only one service triggers the build; the rest reuse the image
+    container_name: cloud_agents-browseros-1
+    ports:
+      - "9201:9200"           # MCP   — Claude Desktop connector points here
+      - "9111:9011"           # CDP
+      - "6081:6080"           # noVNC — http://localhost:6081/
+    volumes:
+      - ./data/1:/data
+
+  browseros-2:
+    <<: *browseros-defaults
+    container_name: cloud_agents-browseros-2
+    depends_on:
+      - browseros-1           # ensures the image build (on browseros-1) finishes first
+    ports:
+      - "9202:9200"
+      - "9112:9011"
+      - "6082:6080"
+    volumes:
+      - ./data/2:/data
+
+  browseros-3:
+    <<: *browseros-defaults
+    container_name: cloud_agents-browseros-3
+    depends_on:
+      - browseros-1
+    ports:
+      - "9203:9200"
+      - "9113:9011"
+      - "6083:6080"
+    volumes:
+      - ./data/3:/data

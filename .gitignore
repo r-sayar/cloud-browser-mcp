@@ -1,0 +1,28 @@
+# BrowserOS Linux build — fetch from BrowserOS releases (~280 MB, too big for git)
+BrowserOS.AppImage
+
+# A clone of the BrowserOS source repo — not part of this project
+browseros/
+
+# Persistent profiles (cookies, history, saved passwords) — never commit
+data/
+
+# Profile snapshots
+profile-*.tgz
+
+# macOS / Python / Node noise
+.DS_Store
+__pycache__/
+*.pyc
+node_modules/
+
+# Editor
+.vscode/
+.idea/
+
+# Backups created by config-edit scripts
+*.backup-*
+
+# Local environment overrides
+.env
+.env.local
