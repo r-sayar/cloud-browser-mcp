@@ -198,6 +198,37 @@ a real server, the cheapest paths in order:
 After option 1 or 2, point Claude Desktop's MCP URLs at the tailnet host:
 `http://<tailscale-ip>:9201/mcp` etc.
 
+## Wrapping a site as a high-level MCP
+
+Vanilla `mcp__browseros-N__*` exposes 60+ low-level browser primitives
+(`take_snapshot`, `click`, `fill`). For sites you use a lot, you want a
+**high-level surface** instead — `gmail_compose(to, subject, body)` rather
+than "snapshot, find compose button, click, wait, snapshot, fill To, ...".
+
+[`gmail_mcp/`](gmail_mcp/) is the canonical example: a Python stdio MCP that
+exposes 7 Gmail tools (`open_inbox`, `list_recent`, `search`, `open_email`,
+`compose`, `archive_current`, `screenshot`). Each tool is a **cached
+deterministic recipe** that calls BrowserOS's `evaluate_script` once with a
+hardcoded JS payload. No runtime LLM reasoning, no per-call selector
+discovery.
+
+To wire it in, add to `claude_desktop_config.json`:
+
+```json
+"gmail": {
+  "command": "/path/to/cloud-browser-mcp/gmail_mcp/.venv/bin/python",
+  "args": ["/path/to/cloud-browser-mcp/gmail_mcp/server.py"],
+  "env": { "BROWSEROS_URL": "http://localhost:9201/mcp" }
+}
+```
+
+Now in any chat: *"Using the gmail MCP, find the most recent email from my
+professor and summarize it."*
+
+**Want to build one for another site?** Read [`docs/PROTOCOL.md`](docs/PROTOCOL.md)
+— the 7-step recipe for taking a site from "open in cloud browser" to
+"working high-level MCP" in about 90 minutes.
+
 ## Browser dashboard
 
 `dashboard.html` is a self-contained dark-mode page that embeds all three
@@ -261,6 +292,12 @@ smoke tests so reviewers can confirm the shape of the change quickly.
 ├── BrowserOS.AppImage          # gitignored — drop in from BrowserOS releases
 ├── data/{1,2,3}/profile/       # Persistent BrowserOS profiles (cookies etc.)
 ├── dashboard.html              # Self-contained 3-up noVNC dashboard
+├── gmail_mcp/                  # Reference site-as-MCP (7 Gmail tools)
+│   ├── server.py
+│   ├── requirements.txt
+│   └── .venv/                  # gitignored — created by `python -m venv .venv`
+├── docs/
+│   └── PROTOCOL.md             # 7-step recipe for wrapping any site as MCP
 ├── cloud/
 │   ├── SETUP.md                # Hetzner CPX31 + Tailscale walkthrough
 │   ├── cloud-init.yaml         # Server bootstrap (Docker + Tailscale + ufw)

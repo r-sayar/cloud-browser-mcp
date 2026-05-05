@@ -20,6 +20,10 @@ node_modules/
 .vscode/
 .idea/
 
+# Python venvs
+.venv/
+venv/
+
 # Backups created by config-edit scripts
 *.backup-*
 
