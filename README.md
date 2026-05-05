@@ -182,17 +182,35 @@ comfortable on 8 GB; four+ wants 12 GB+.
 ## Running on a remote host (optional)
 
 The single-machine local setup above works for personal use. If you want it on
-a server, the cheapest paths in order:
+a real server, the cheapest paths in order:
 
 1. **Self-host on any spare hardware** (Pi 4+, NUC, Mac mini, old laptop) +
    [Tailscale](https://tailscale.com/) for remote access. Free; ~$1/mo electricity.
-   Update Claude Desktop to point at `http://<tailscale-ip>:9201/mcp` instead of
-   localhost. Done.
-2. **Hetzner CX32** (€7.55/mo, 8 GB RAM) + Tailscale. Same idea, ~$8/mo.
+2. **Hetzner CPX31** (€16.49/mo, 4 vCPU AMD, 8 GB) + Tailscale. **End-to-end
+   walkthrough in [`cloud/SETUP.md`](cloud/SETUP.md)**, including a paste-ready
+   `cloud-init.yaml` that bootstraps Docker + Tailscale + ufw, and a
+   `cloud/deploy.sh` that rsyncs the repo + (optionally) your logged-in
+   profiles, then runs `docker compose up -d --build` on the remote.
 3. **Public HTTPS via Caddy** in front of the stack, with bearer-token auth.
-   ~30 min extra setup; only do it if you need to share access with collaborators.
+   Sketched in [BROWSEROS.md](BROWSEROS.md). Only do this if you need
+   collaborators on a different network than yours.
 
-A Caddy + auth deploy bundle for option 3 is sketched in [BROWSEROS.md](BROWSEROS.md).
+After option 1 or 2, point Claude Desktop's MCP URLs at the tailnet host:
+`http://<tailscale-ip>:9201/mcp` etc.
+
+## Browser dashboard
+
+`dashboard.html` is a self-contained dark-mode page that embeds all three
+slot's noVNC views side-by-side, with health indicators per slot. Open it
+locally:
+
+```bash
+python3 -m http.server 5173    # or use the .claude/launch.json config
+open http://localhost:5173/dashboard.html
+```
+
+(VS Code / Cursor users: hit F5 — the included `.claude/launch.json` runs the
+http server and opens the dashboard.)
 
 ---
 
@@ -242,6 +260,11 @@ smoke tests so reviewers can confirm the shape of the change quickly.
 ├── docker-compose.yml          # 3 services with YAML anchor for shared defaults
 ├── BrowserOS.AppImage          # gitignored — drop in from BrowserOS releases
 ├── data/{1,2,3}/profile/       # Persistent BrowserOS profiles (cookies etc.)
+├── dashboard.html              # Self-contained 3-up noVNC dashboard
+├── cloud/
+│   ├── SETUP.md                # Hetzner CPX31 + Tailscale walkthrough
+│   ├── cloud-init.yaml         # Server bootstrap (Docker + Tailscale + ufw)
+│   └── deploy.sh               # Rsync repo to remote + compose up
 ├── launchd/
 │   └── com.cloud-agents.browseros.plist   # macOS LaunchAgent template
 ├── scripts/
@@ -251,6 +274,8 @@ smoke tests so reviewers can confirm the shape of the change quickly.
 │   ├── backup.sh / restore.sh  # tar/untar of ./data
 │   └── requirements.txt
 ├── BROWSEROS.md                # multi-tenant cloud-deploy design
+├── SECURITY.md                 # threat model + 4 deployment patterns
+├── LICENSE                     # MIT (wrapper code only; BrowserOS has its own)
 ├── legacy/steel/               # earlier Steel + Chromium prototype, kept for reference
 └── README.md
 ```
