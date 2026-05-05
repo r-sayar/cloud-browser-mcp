@@ -16,13 +16,23 @@ fi
 eval "$(dbus-launch --sh-syntax)"
 export DBUS_SESSION_BUS_ADDRESS DBUS_SESSION_BUS_PID
 
-# 2. Xvfb on :10
+# 2. Xvfb on :10. Clear any stale lock first — a hard-killed Xvfb leaves
+#    /tmp/.X11-unix/X10 + /tmp/.X10-lock behind, and a fresh Xvfb refuses to
+#    bind on top of them. This was the cause of post-restart crash loops where
+#    BrowserOS came up complaining "Missing X server or $DISPLAY".
+rm -f /tmp/.X10-lock /tmp/.X11-unix/X10 2>/dev/null || true
 Xvfb :10 -screen 0 1920x1080x24 -ac +extension RANDR +render -noreset \
     >/var/log/xvfb.log 2>&1 &
-for _ in 1 2 3 4 5 6 7 8 9 10; do
+# Wait long enough for slow restarts (was 3s; bumped to 10s).
+for _ in $(seq 1 30); do
     [ -e /tmp/.X11-unix/X10 ] && break
     sleep 0.3
 done
+if [ ! -e /tmp/.X11-unix/X10 ]; then
+    echo "[entrypoint] FATAL: Xvfb never came up. Logs:" >&2
+    tail -30 /var/log/xvfb.log >&2 || true
+    exit 1
+fi
 
 # 3. x11vnc + noVNC for the live-view (http://localhost:6080/)
 x11vnc -display :10 -forever -shared -rfbport 5900 -nopw -quiet \
@@ -81,7 +91,21 @@ fi
     wait
 ) &
 
-# 6. BrowserOS as PID-1's primary child
+# 6. Background watcher that resizes any Chromium window to fill the Xvfb
+#    display. Without a window manager --start-maximized is ignored, so we
+#    drive xdotool ourselves whenever a new window appears.
+(
+    sleep 3
+    while true; do
+        for w in $(DISPLAY=:10 xdotool search --onlyvisible --class chromium 2>/dev/null); do
+            DISPLAY=:10 xdotool windowsize "$w" 1920 1080 2>/dev/null || true
+            DISPLAY=:10 xdotool windowmove "$w" 0 0 2>/dev/null || true
+        done
+        sleep 5
+    done
+) &
+
+# 7. BrowserOS as PID-1's primary child
 echo "[entrypoint] launching BrowserOS with profile $PROFILE_DIR"
 exec /opt/browseros/AppRun \
     --no-sandbox \
@@ -89,4 +113,6 @@ exec /opt/browseros/AppRun \
     --user-data-dir="$PROFILE_DIR" \
     --no-first-run \
     --no-default-browser-check \
+    --window-size=1920,1080 \
+    --window-position=0,0 \
     --start-maximized

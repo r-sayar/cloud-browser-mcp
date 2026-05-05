@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Cloud Browser MCP — Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root {
+      --bg: #0d1117;
+      --panel: #161b22;
+      --panel-hi: #1f2630;
+      --border: #30363d;
+      --border-hi: #484f58;
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --accent: #2f81f7;
+      --green: #3fb950;
+      --red: #f85149;
+      --amber: #d29922;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    header {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--border);
+      background: var(--panel);
+    }
+    header h1 {
+      font-size: 14px;
+      font-weight: 600;
+      margin: 0;
+      letter-spacing: 0.2px;
+    }
+    header .spacer { flex: 1; }
+    header .hint {
+      color: var(--muted);
+      font-size: 12px;
+    }
+    header kbd {
+      background: var(--panel-hi);
+      border: 1px solid var(--border);
+      border-bottom-width: 2px;
+      border-radius: 4px;
+      padding: 1px 5px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 11px;
+    }
+    header button.back {
+      display: none;
+      background: var(--panel-hi);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 4px 10px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    header button.back:hover { border-color: var(--border-hi); }
+    body.focused header button.back { display: inline-block; }
+
+    main {
+      flex: 1 1 auto;
+      display: grid;
+      gap: 12px;
+      padding: 12px;
+      grid-template-columns: repeat(3, 1fr);
+      grid-template-rows: 1fr;
+      min-height: 0;
+    }
+
+    .tile {
+      display: flex;
+      flex-direction: column;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      min-height: 0;
+      transition: border-color 0.15s;
+    }
+    .tile:hover { border-color: var(--border-hi); }
+
+    .tile-head {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--border);
+      background: var(--panel-hi);
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--amber);
+      flex: 0 0 auto;
+      box-shadow: 0 0 0 2px rgba(0,0,0,0.2) inset;
+    }
+    .dot.live { background: var(--green); }
+    .dot.offline { background: var(--red); }
+
+    .tile-name {
+      font-weight: 600;
+      font-size: 13px;
+      flex: 1 1 auto;
+      min-width: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      cursor: text;
+      padding: 2px 4px;
+      border-radius: 4px;
+      outline: none;
+    }
+    .tile-name:hover { background: rgba(255,255,255,0.04); }
+    .tile-name:focus { background: rgba(47,129,247,0.15); }
+
+    .tile-ports {
+      color: var(--muted);
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 11px;
+      flex: 0 0 auto;
+    }
+
+    .tile-actions {
+      display: flex;
+      gap: 4px;
+      flex: 0 0 auto;
+    }
+    .tile-actions button {
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      width: 24px; height: 24px;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px;
+      padding: 0;
+    }
+    .tile-actions button:hover {
+      color: var(--text);
+      border-color: var(--border-hi);
+      background: rgba(255,255,255,0.04);
+    }
+
+    .tile-body {
+      flex: 1 1 auto;
+      position: relative;
+      min-height: 0;
+      background: #000;
+      cursor: pointer;
+    }
+    .tile-body iframe {
+      width: 100%;
+      height: 100%;
+      border: 0;
+      display: block;
+      pointer-events: none;
+    }
+    .tile-body .focus-hint {
+      position: absolute;
+      inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(13,17,23,0);
+      transition: background 0.15s;
+      pointer-events: none;
+    }
+    .tile-body:hover .focus-hint {
+      background: rgba(13,17,23,0.35);
+    }
+    .focus-hint span {
+      opacity: 0;
+      transition: opacity 0.15s;
+      background: var(--panel);
+      border: 1px solid var(--border-hi);
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 12px;
+      color: var(--text);
+    }
+    .tile-body:hover .focus-hint span { opacity: 1; }
+
+    /* Focus mode: hide non-focused tiles, expand focused tile to fill main */
+    body.focused main {
+      grid-template-columns: 1fr;
+    }
+    body.focused .tile:not(.focused) { display: none; }
+    body.focused .tile.focused .tile-body { cursor: default; }
+    body.focused .tile.focused .tile-body iframe { pointer-events: auto; }
+    body.focused .tile.focused .focus-hint { display: none; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Cloud Browser MCP</h1>
+    <button class="back" onclick="unfocus()">← back to grid</button>
+    <span class="spacer"></span>
+    <span class="hint">
+      click a tile to focus &nbsp;·&nbsp;
+      <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> jump &nbsp;·&nbsp;
+      <kbd>Esc</kbd> back
+    </span>
+  </header>
+
+  <main id="grid"></main>
+
+  <script>
+    const SLOTS = [
+      { id: 1, default_name: "Browser 1", novnc: 6081, mcp: 9201, cdp: 9111 },
+      { id: 2, default_name: "Browser 2", novnc: 6082, mcp: 9202, cdp: 9112 },
+      { id: 3, default_name: "Browser 3", novnc: 6083, mcp: 9203, cdp: 9113 },
+    ];
+
+    const grid = document.getElementById("grid");
+
+    function nameKey(id) { return `cbm.name.${id}`; }
+    function getName(s) { return localStorage.getItem(nameKey(s.id)) || s.default_name; }
+    function setName(s, n) {
+      const trimmed = (n || "").trim() || s.default_name;
+      localStorage.setItem(nameKey(s.id), trimmed);
+      return trimmed;
+    }
+
+    function novncUrl(s) { return `http://localhost:${s.novnc}/?scale=true`; }
+
+    SLOTS.forEach(s => {
+      const tile = document.createElement("section");
+      tile.className = "tile";
+      tile.dataset.slot = s.id;
+      tile.innerHTML = `
+        <div class="tile-head">
+          <span class="dot" title="connecting…"></span>
+          <span class="tile-name" contenteditable="true" spellcheck="false"></span>
+          <span class="tile-ports">noVNC ${s.novnc} · MCP ${s.mcp} · CDP ${s.cdp}</span>
+          <span class="tile-actions">
+            <button title="Reload" data-action="reload">⟳</button>
+            <button title="Open in new tab" data-action="open">↗</button>
+          </span>
+        </div>
+        <div class="tile-body" data-action="focus">
+          <iframe src="${novncUrl(s)}" allow="clipboard-read; clipboard-write"></iframe>
+          <div class="focus-hint"><span>Click to focus</span></div>
+        </div>
+      `;
+
+      const nameEl = tile.querySelector(".tile-name");
+      nameEl.textContent = getName(s);
+      nameEl.addEventListener("blur", () => { nameEl.textContent = setName(s, nameEl.textContent); });
+      nameEl.addEventListener("keydown", e => {
+        if (e.key === "Enter") { e.preventDefault(); nameEl.blur(); }
+      });
+      // editing the name should not bubble up and trigger focus
+      nameEl.addEventListener("click", e => e.stopPropagation());
+
+      const dot = tile.querySelector(".dot");
+      const iframe = tile.querySelector("iframe");
+      let loaded = false;
+      iframe.addEventListener("load", () => {
+        loaded = true;
+        dot.classList.add("live");
+        dot.classList.remove("offline");
+        dot.title = "connected";
+      });
+      // If nothing loads in 5s, mark offline (likely container down)
+      setTimeout(() => {
+        if (!loaded) {
+          dot.classList.add("offline");
+          dot.title = "offline — is the container running?";
+        }
+      }, 5000);
+
+      tile.querySelector('[data-action="reload"]').addEventListener("click", e => {
+        e.stopPropagation();
+        iframe.src = iframe.src;
+      });
+      tile.querySelector('[data-action="open"]').addEventListener("click", e => {
+        e.stopPropagation();
+        window.open(novncUrl(s), "_blank", "noopener");
+      });
+      tile.querySelector(".tile-body").addEventListener("click", () => focus(s.id));
+
+      grid.appendChild(tile);
+    });
+
+    function focus(id) {
+      document.body.classList.add("focused");
+      document.querySelectorAll(".tile").forEach(t => {
+        t.classList.toggle("focused", Number(t.dataset.slot) === id);
+      });
+    }
+    function unfocus() {
+      document.body.classList.remove("focused");
+      document.querySelectorAll(".tile").forEach(t => t.classList.remove("focused"));
+    }
+
+    document.addEventListener("keydown", e => {
+      // ignore when typing in the editable name
+      if (e.target.isContentEditable) return;
+      if (e.key === "Escape") return unfocus();
+      if (["1","2","3"].includes(e.key)) focus(Number(e.key));
+    });
+  </script>
+</body>
+</html>

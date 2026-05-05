@@ -14,7 +14,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 #  - fonts                               → CJK + Latin so most pages render
 #  - dbus-x11                            → BrowserOS expects a DBus session
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        xvfb x11vnc novnc websockify socat jq \
+        xvfb x11vnc novnc websockify socat jq xdotool \
         ca-certificates curl wget tini procps \
         dbus dbus-x11 \
         libnss3 libnspr4 libgbm1 libgtk-3-0 libxss1 libasound2 \
