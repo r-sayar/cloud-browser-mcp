@@ -124,23 +124,50 @@ def _client() -> _BOSClient:
 
 
 # ─── helpers ───────────────────────────────────────────────────────────────────
+import re
+
+# BrowserOS's list_pages tool returns a human-readable text block where each
+# entry looks like:
+#   1. <page title> (tab <tabId>)
+#      <url>
+# We regex this into [(pageId, url), ...] so we can find an existing Gmail tab.
+_PAGE_RE = re.compile(r"^(\d+)\.\s+(.+?)\n\s+(\S+)$", re.MULTILINE)
+
+
+def _parse_pages_text(text: str) -> list[tuple[int, str]]:
+    return [(int(m.group(1)), m.group(3)) for m in _PAGE_RE.finditer(text)]
+
+
 async def _active_page_id() -> int:
-    """Return the page id of the active tab, opening Gmail if needed."""
-    pages = await _client().call("list_pages", {})
-    page_list = pages.get("pages", []) if isinstance(pages, dict) else []
-    for p in page_list:
-        if "mail.google.com" in p.get("url", ""):
-            return p["pageId"]
-    # No Gmail tab open; navigate the first page to Gmail.
-    if page_list:
-        pid = page_list[0]["pageId"]
+    """Return the page id of an already-open Gmail tab, or open one and return its id.
+
+    We deliberately reuse an existing Gmail tab rather than spawning new ones
+    on every tool call — otherwise repeated tool use leaks tabs.
+    """
+    pages_text = await _client().call("list_pages", {})
+    if not isinstance(pages_text, str):
+        # Older BrowserOS versions returned JSON; fall back through.
+        pages_text = json.dumps(pages_text)
+    parsed = _parse_pages_text(pages_text)
+    for pid, url in parsed:
+        if "mail.google.com" in url:
+            return pid
+    # No Gmail tab. Reuse the first existing page and navigate it.
+    if parsed:
+        pid = parsed[0][0]
         await _client().call("navigate_page", {"page": pid, "url": GMAIL_URL})
-        await asyncio.sleep(2.5)
+        await asyncio.sleep(2.0)
         return pid
-    # No pages at all — open one
-    res = await _client().call("new_page", {"url": GMAIL_URL})
+    # No pages at all — open one.
+    await _client().call("new_page", {"url": GMAIL_URL})
     await asyncio.sleep(2.5)
-    return res.get("pageId", 1) if isinstance(res, dict) else 1
+    # Re-scan to find its id.
+    pages_text = await _client().call("list_pages", {})
+    parsed = _parse_pages_text(pages_text if isinstance(pages_text, str) else json.dumps(pages_text))
+    for pid, url in parsed:
+        if "mail.google.com" in url:
+            return pid
+    raise RuntimeError("could not open or find a Gmail tab")
 
 
 async def _js(script: str) -> Any:
@@ -202,10 +229,24 @@ async def gmail_open_inbox() -> str:
     if isinstance(info, str):
         info = json.loads(info)
     if not info.get("loggedIn"):
-        return (f"Gmail is not logged in (url={info.get('url')}). "
-                "Open http://localhost:6081/ to sign in inside the cloud browser, "
-                "then retry.")
-    return f"inbox open. signed in as {info.get('account', 'unknown')}; title={info['title']}"
+        return json.dumps({
+            "ok": False,
+            "error": "not_logged_in",
+            "url": info.get("url"),
+            "next_actions": [
+                "Open http://localhost:6081/ in your laptop browser, sign in, then retry."
+            ],
+        }, indent=2)
+    return json.dumps({
+        "ok": True,
+        "account": info.get("account", "unknown"),
+        "title": info["title"],
+        "next_actions": [
+            "gmail_list_recent(count=10) — show what's in the inbox",
+            "gmail_search(query='from:foo OR is:unread') — find specific threads",
+            "gmail_compose(to=, subject=, body=, send=False) — start a draft",
+        ],
+    }, indent=2)
 
 
 @mcp.tool()
@@ -247,7 +288,15 @@ async def gmail_list_recent(count: int = 10) -> str:
     """)
     if isinstance(result, str):
         result = json.loads(result)
-    return json.dumps(result, indent=2, ensure_ascii=False)
+    return json.dumps({
+        "threads": result,
+        "count": len(result),
+        "next_actions": [
+            f"gmail_open_email(index=N) where 0 <= N < {len(result)} — open thread",
+            "gmail_search(query=...) — narrow down by sender / date / unread",
+            "gmail_compose(...) — start a new email",
+        ],
+    }, indent=2, ensure_ascii=False)
 
 
 @mcp.tool()
@@ -288,9 +337,12 @@ async def gmail_open_email(index: int) -> str:
         const subj = document.querySelector('h2[data-thread-perm-id], h2.hP');
         const msgs = document.querySelectorAll('div[data-message-id]');
         const last = msgs[msgs.length - 1];
+        const senderEl = last ? last.querySelector('span[email]') : null;
+        const senderEmail = senderEl ? senderEl.getAttribute('email') : '';
         const body = last ? (last.querySelector('div.a3s, div.ii.gt')?.innerText || '') : '';
         return JSON.stringify({
           subject: subj ? subj.innerText.trim() : '(could not read subject)',
+          senderEmail,
           messageCount: msgs.length,
           body: body.slice(0, 4000)
         });
@@ -298,96 +350,74 @@ async def gmail_open_email(index: int) -> str:
     """)
     if isinstance(body, str):
         body = json.loads(body)
+    sender = body.get("senderEmail", "")
+    body["next_actions"] = [
+        f"gmail_compose(to='{sender}', subject='Re: {body.get('subject','')[:60]}', body=..., send=True) — reply",
+        "gmail_archive_current() — archive this thread",
+        "gmail_open_inbox() — back to inbox",
+        "gmail_list_recent() — re-list inbox to pick another",
+    ] if sender else [
+        "gmail_archive_current() — archive this thread",
+        "gmail_open_inbox() — back to inbox",
+    ]
     return json.dumps(body, indent=2, ensure_ascii=False)
 
 
 @mcp.tool()
 async def gmail_compose(to: str, subject: str, body: str, send: bool = False) -> str:
-    """Open the Gmail composer and fill it. If send=True, send immediately.
+    """Open the Gmail composer pre-filled. If send=True, send immediately.
 
-    The composer must already work — this tool clicks the Compose button
-    (`div[gh="cm"]`), waits for the dialog, fills the To/Subject/Body inputs,
-    and optionally hits the Send button.
+    Fast path: navigate the active tab to Gmail's URL-driven compose endpoint
+    (`?view=cm&fs=1&tf=1&to=…&su=…&body=…`) so the dialog opens already
+    populated — no clicking Compose, no waiting on the dialog, no
+    field-by-field fill. From "tool fires" to "Send clicked" in <2s.
     """
-    pid = await _active_page_id()
-    # Make sure we're at the inbox so Compose is visible
-    cur_url = await _js("location.href")
-    if "mail.google.com" not in (cur_url or ""):
-        await _client().call("navigate_page", {"page": pid, "url": GMAIL_URL})
-        await asyncio.sleep(1.5)
+    from urllib.parse import quote
 
-    # Cached recipe: click compose, wait for dialog, fill, optionally send.
-    safe_to = json.dumps(to)
-    safe_subj = json.dumps(subject)
-    safe_body = json.dumps(body)
-    send_flag = "true" if send else "false"
+    url = (
+        "https://mail.google.com/mail/u/0/?view=cm&fs=1&tf=1"
+        f"&to={quote(to)}&su={quote(subject)}&body={quote(body)}"
+    )
 
-    js = f"""
-      (async () => {{
-        const log = [];
-        const wait = ms => new Promise(r => setTimeout(r, ms));
-        const waitFor = async (sel, t=8000) => {{
-          const start = Date.now();
-          while (Date.now() - start < t) {{
-            const el = document.querySelector(sel);
-            if (el) return el;
-            await wait(100);
-          }}
-          throw new Error('timeout: ' + sel);
-        }};
-        // 1. Click compose
-        const composeBtn = await waitFor('div[gh="cm"]');
-        composeBtn.click();
-        log.push('clicked compose');
+    # Why new_page instead of navigate_page on the existing inbox tab:
+    #  - navigate_page blocks ~7s waiting for the Gmail SPA to fully load.
+    #  - new_page returns in <100ms and Gmail's compose UI mounts in
+    #    parallel while we wait a fixed ~2s — well under the 5s budget.
+    #  - It also leaves the inbox tab untouched, so gmail_open_inbox /
+    #    gmail_list_recent stay snappy after a compose.
+    np_resp = await _client().call("new_page", {"url": url})
+    # new_page returns text like "Opened new page: …\nPage ID: 52"
+    text = np_resp if isinstance(np_resp, str) else json.dumps(np_resp)
+    m = re.search(r"Page ID:\s*(\d+)", text)
+    if not m:
+        return json.dumps({"ok": False, "error": "could_not_parse_page_id", "raw": text[:200]})
+    new_pid = int(m.group(1))
 
-        // 2. Wait for the composer dialog
-        const dialog = await waitFor('div[role="dialog"][aria-label*="essage"], div.M9');
-        await wait(300);
+    if not send:
+        return json.dumps({
+            "ok": True, "mode": "draft_open", "page_id": new_pid, "url": url,
+            "next_actions": [
+                "gmail_screenshot — verify the draft looks right",
+                "gmail_compose(..., send=True) — overwrite + send",
+                f"close the draft tab via the BrowserOS close_page tool with page={new_pid}",
+            ],
+        }, indent=2)
 
-        // 3. Fill the "To" field
-        const toField = dialog.querySelector('input[aria-label*="To recipients" i], textarea[name="to"]');
-        if (!toField) throw new Error('To field not found');
-        toField.focus();
-        toField.value = '';
-        toField.dispatchEvent(new Event('focus', {{bubbles: true}}));
-        document.execCommand('insertText', false, {safe_to});
-        log.push('filled to');
-
-        // 4. Subject
-        const subjField = dialog.querySelector('input[name="subjectbox"]');
-        if (!subjField) throw new Error('Subject field not found');
-        subjField.focus();
-        subjField.value = '';
-        document.execCommand('insertText', false, {safe_subj});
-        log.push('filled subject');
-
-        // 5. Body — Gmail uses a contenteditable div, not a textarea
-        const bodyEl = dialog.querySelector('div[role="textbox"][aria-label*="Message Body"], div[g_editable="true"]');
-        if (!bodyEl) throw new Error('Body field not found');
-        bodyEl.focus();
-        document.execCommand('insertText', false, {safe_body});
-        log.push('filled body');
-
-        // 6. Optionally send
-        if ({send_flag}) {{
-          const sendBtn = dialog.querySelector('div[role="button"][aria-label*="Send"], div[role="button"][data-tooltip*="Send"]');
-          if (!sendBtn) throw new Error('Send button not found');
-          sendBtn.click();
-          log.push('clicked send');
-        }} else {{
-          log.push('left as draft');
-        }}
-
-        return JSON.stringify({{ok: true, steps: log}});
-      }})()
-    """
-    out = await _js(js)
-    if isinstance(out, str):
-        try:
-            out = json.loads(out)
-        except Exception:
-            return f"compose result: {out}"
-    return json.dumps(out, indent=2)
+    # Send path. Gmail honors Cmd+Enter / Ctrl+Enter to send from any
+    # compose surface. press_key doesn't block on navigation the way
+    # evaluate_script does. We just need to give the compose UI ~1s to
+    # mount and focus the body field, then fire the shortcut.
+    await asyncio.sleep(1.2)
+    await _client().call("press_key", {"page": new_pid, "key": "Meta+Enter"})
+    return json.dumps({
+        "ok": True,
+        "mode": "sent",
+        "page_id": new_pid,
+        "next_actions": [
+            "gmail_open_inbox — back to inbox (kept warm in another tab)",
+            f"gmail_search(query='to:{to}') — confirm delivery",
+        ],
+    }, indent=2)
 
 
 @mcp.tool()
@@ -406,7 +436,12 @@ async def gmail_archive_current() -> str:
     """)
     if isinstance(out, str):
         out = json.loads(out)
-    return json.dumps(out)
+    if out.get("ok"):
+        out["next_actions"] = [
+            "gmail_list_recent() — see what's now at the top of the inbox",
+            "gmail_open_email(index=0) — open the next-most-recent thread",
+        ]
+    return json.dumps(out, indent=2)
 
 
 @mcp.tool()
