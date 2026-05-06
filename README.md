@@ -205,29 +205,63 @@ Vanilla `mcp__browseros-N__*` exposes 60+ low-level browser primitives
 **high-level surface** instead — `gmail_compose(to, subject, body)` rather
 than "snapshot, find compose button, click, wait, snapshot, fill To, ...".
 
-[`gmail_mcp/`](gmail_mcp/) is the canonical example: a Python stdio MCP that
-exposes 7 Gmail tools (`open_inbox`, `list_recent`, `search`, `open_email`,
-`compose`, `archive_current`, `screenshot`). Each tool is a **cached
-deterministic recipe** that calls BrowserOS's `evaluate_script` once with a
-hardcoded JS payload. No runtime LLM reasoning, no per-call selector
-discovery.
+Four reference site MCPs live in this repo. Each is ~150-300 lines of Python,
+shares a tiny BrowserOS-HTTP client (`mcp_lib/`), and exposes a 6-7 tool
+high-level surface:
 
-To wire it in, add to `claude_desktop_config.json`:
+| Site MCP                         | Tools                                             | Notes                                        |
+|----------------------------------|---------------------------------------------------|----------------------------------------------|
+| [`gmail_mcp/`](gmail_mcp/)       | open_inbox, list_recent, search, open_email, compose, archive_current, screenshot | URL-driven compose; **`compose+send` ~1.9s** |
+| [`claude_ai_mcp/`](claude_ai_mcp/) | open_recents, list_recent_chats, open_chat, new_chat, send_message, get_last_response, screenshot | Drive another claude.ai session              |
+| [`outlook_mcp/`](outlook_mcp/)   | open_inbox, list_recent, search, open_email, compose, archive_current, screenshot | Office365 / FU Berlin via outlook.office.com |
+| [`canvas_mcp/`](canvas_mcp/)     | list_courses, open_course, list_assignments, list_announcements, list_grades, screenshot | UC Davis Instructure LMS, read-only          |
+
+Each tool is a **cached deterministic recipe** that calls BrowserOS once with
+a hardcoded JS or URL payload — no runtime LLM reasoning, no per-call
+selector discovery, no large snapshots in the agent context.
+
+Every tool also returns a `next_actions` array hinting at legal follow-ups,
+so the agent doesn't have to re-derive the affordance graph after each call.
+
+### Wire them in
+
+One shared venv at the repo root drives all four servers:
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+```
+
+Then add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ```json
-"gmail": {
-  "command": "/path/to/cloud-browser-mcp/gmail_mcp/.venv/bin/python",
-  "args": ["/path/to/cloud-browser-mcp/gmail_mcp/server.py"],
-  "env": { "BROWSEROS_URL": "http://localhost:9201/mcp" }
+{
+  "mcpServers": {
+    "gmail":     { "command": "/abs/path/cloud-browser-mcp/.venv/bin/python", "args": ["/abs/path/cloud-browser-mcp/gmail_mcp/server.py"],     "env": {"BROWSEROS_URL": "http://localhost:9201/mcp"} },
+    "claude-ai": { "command": "/abs/path/cloud-browser-mcp/.venv/bin/python", "args": ["/abs/path/cloud-browser-mcp/claude_ai_mcp/server.py"], "env": {"BROWSEROS_URL": "http://localhost:9201/mcp"} },
+    "outlook":   { "command": "/abs/path/cloud-browser-mcp/.venv/bin/python", "args": ["/abs/path/cloud-browser-mcp/outlook_mcp/server.py"],   "env": {"BROWSEROS_URL": "http://localhost:9201/mcp"} },
+    "canvas":    { "command": "/abs/path/cloud-browser-mcp/.venv/bin/python", "args": ["/abs/path/cloud-browser-mcp/canvas_mcp/server.py"],    "env": {"BROWSEROS_URL": "http://localhost:9201/mcp"} }
+  }
 }
 ```
 
-Now in any chat: *"Using the gmail MCP, find the most recent email from my
-professor and summarize it."*
+Sign into each site once via http://localhost:6081/, ⌘Q + reopen Claude Desktop,
+and the tools appear. Try *"Using the gmail MCP, find the most recent email
+from my professor and summarize it."*
 
-**Want to build one for another site?** Read [`docs/PROTOCOL.md`](docs/PROTOCOL.md)
-— the 7-step recipe for taking a site from "open in cloud browser" to
-"working high-level MCP" in about 90 minutes.
+### Speed (Gmail compose, send=True)
+
+| Path                                   | Wall-clock | Tool calls |
+|----------------------------------------|------------|------------|
+| Vanilla `mcp__browseros-1__*` (snapshot+click) | **~110 s** | 6 (incl. ~8K-token snapshot) |
+| gmail_compose v1 (Compose-button recipe)        | ~27 s      | 1          |
+| **gmail_compose current** (URL-driven + Meta+Enter) | **~1.9 s** | 1 |
+
+### Build one for any site
+
+Read [`docs/PROTOCOL.md`](docs/PROTOCOL.md) — the 7-step recipe for taking a
+site from "open in cloud browser" to "working high-level MCP" in about 90
+minutes. The shared client in `mcp_lib/` makes new servers ~150 lines.
 
 ## Browser dashboard
 

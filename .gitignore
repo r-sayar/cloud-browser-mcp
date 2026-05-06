@@ -20,9 +20,10 @@ node_modules/
 .vscode/
 .idea/
 
-# Python venvs
+# Python venvs (one shared at repo root, plus the legacy gmail_mcp/.venv)
 .venv/
 venv/
+gmail_mcp/.venv/
 
 # Backups created by config-edit scripts
 *.backup-*
