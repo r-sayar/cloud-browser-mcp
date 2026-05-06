@@ -205,16 +205,27 @@ Vanilla `mcp__browseros-N__*` exposes 60+ low-level browser primitives
 **high-level surface** instead — `gmail_compose(to, subject, body)` rather
 than "snapshot, find compose button, click, wait, snapshot, fill To, ...".
 
-Four reference site MCPs live in this repo. Each is ~150-300 lines of Python,
-shares a tiny BrowserOS-HTTP client (`mcp_lib/`), and exposes a 6-7 tool
-high-level surface:
+Fifteen reference site MCPs ship in this repo. Each is ~100-300 lines,
+shares a tiny BrowserOS-HTTP client (`mcp_lib/`), and exposes a small
+high-level tool surface:
 
-| Site MCP                         | Tools                                             | Notes                                        |
-|----------------------------------|---------------------------------------------------|----------------------------------------------|
-| [`gmail_mcp/`](gmail_mcp/)       | open_inbox, list_recent, search, open_email, compose, archive_current, screenshot | URL-driven compose; **`compose+send` ~1.9s** |
-| [`claude_ai_mcp/`](claude_ai_mcp/) | open_recents, list_recent_chats, open_chat, new_chat, send_message, get_last_response, screenshot | Drive another claude.ai session              |
-| [`outlook_mcp/`](outlook_mcp/)   | open_inbox, list_recent, search, open_email, compose, archive_current, screenshot | Office365 / FU Berlin via outlook.office.com |
-| [`canvas_mcp/`](canvas_mcp/)     | list_courses, open_course, list_assignments, list_announcements, list_grades, screenshot | UC Davis Instructure LMS, read-only          |
+| Site MCP                            | Tools | Notes                                                        |
+|-------------------------------------|-------|--------------------------------------------------------------|
+| [`gmail_mcp/`](gmail_mcp/)          | 7     | URL-driven compose; **`compose+send` ~1.9s**                 |
+| [`claude_ai_mcp/`](claude_ai_mcp/)  | 7     | Drive another claude.ai session                              |
+| [`outlook_mcp/`](outlook_mcp/)      | 7     | Office365 / generic Outlook Web                              |
+| [`canvas_mcp/`](canvas_mcp/)        | 6     | UC Davis Instructure LMS, read-only                          |
+| [`fu_berlin_mcp/`](fu_berlin_mcp/)  | 6     | FU Berlin ZEDAT-Webmail (SquirrelMail) — different from Outlook |
+| [`amazon_mcp/`](amazon_mcp/)        | 6     | Search, view, cart, orders, wishlist. **NO `place_order`** (financial) |
+| [`youtube_mcp/`](youtube_mcp/)      | 5     | Search, watch, transcript, subs, watchlater                  |
+| [`notion_mcp/`](notion_mcp/)        | 5     | Search, recent, open, create, append                         |
+| [`linkedin_mcp/`](linkedin_mcp/)    | 4     | Search people, view profile, list/send messages              |
+| [`luma_mcp/`](luma_mcp/)            | 3     | List upcoming, view event, RSVP                              |
+| [`wikipedia_mcp/`](wikipedia_mcp/)  | 2     | Public, no auth                                              |
+| [`pubmed_mcp/`](pubmed_mcp/)        | 2     | Public, NCBI                                                 |
+| [`calendly_mcp/`](calendly_mcp/)    | 2     | List event types + scheduled meetings                        |
+| [`skyscanner_mcp/`](skyscanner_mcp/) | 2    | URL-driven flight search. **NO `book_flight`** (financial)   |
+| [`zoom_mcp/`](zoom_mcp/)            | 2     | List upcoming meetings + recordings                          |
 
 Each tool is a **cached deterministic recipe** that calls BrowserOS once with
 a hardcoded JS or URL payload — no runtime LLM reasoning, no per-call
