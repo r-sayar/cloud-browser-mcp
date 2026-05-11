@@ -31,3 +31,23 @@ gmail_mcp/.venv/
 # Local environment overrides
 .env
 .env.local
+
+# Per-site MCP servers — kept local only. gmail_mcp/ remains as the template
+# (referenced by docs/PROTOCOL.md); smart_browseros_mcp/ stays as the affordance layer.
+amazon_mcp/
+calendly_mcp/
+canvas_mcp/
+claude_ai_mcp/
+fu_berlin_mcp/
+linkedin_mcp/
+luma_mcp/
+notion_mcp/
+outlook_mcp/
+pubmed_mcp/
+skyscanner_mcp/
+wikipedia_mcp/
+youtube_mcp/
+zoom_mcp/
+
+# Unrelated working dir
+blast-&-pam/
