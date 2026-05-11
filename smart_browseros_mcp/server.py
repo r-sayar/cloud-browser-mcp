@@ -217,6 +217,7 @@ async def site_describe(page: int) -> str:
         "title": title,
         "site": recipe.id,
         "site_mcp": recipe.site_mcp,
+        "method": recipe.method,  # mcp | api | script — how this site-MCP works under the hood
         "intents": [
             {"tool": i.tool, "args": i.args, "summary": i.summary}
             for i in recipe.intents
@@ -246,6 +247,7 @@ async def site_intents() -> str:
         out.append({
             "id": r.id,
             "site_mcp": r.site_mcp,
+            "method": r.method,  # mcp | api | script
             "url_match": r.url_match,
             "open_url": r.open_url,
             "intents": [{"tool": i.tool, "args": i.args, "summary": i.summary} for i in r.intents],
@@ -291,6 +293,7 @@ async def site_open(site_id: str, page: int | None = None) -> str:
         "ok": True,
         "site": recipe.id,
         "site_mcp": recipe.site_mcp,
+        "method": recipe.method,  # mcp | api | script
         "page_id": new_pid,
         "url": recipe.open_url,
         "intents": [{"tool": i.tool, "args": i.args, "summary": i.summary} for i in recipe.intents],

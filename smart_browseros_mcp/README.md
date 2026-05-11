@@ -36,6 +36,19 @@ fu_berlin, amazon, linkedin, notion, youtube, luma, zoom, calendly, pubmed,
 skyscanner, wikipedia). Each entry lists the corresponding `<site>_mcp` tools
 and URL-pattern context hints. To add a site, append to `RECIPES`.
 
+Every recipe declares a `method` — one of `"mcp"`, `"api"`, or `"script"` —
+documenting how the site-MCP is implemented under the hood:
+
+- `"mcp"` — built on top of an existing first/third-party MCP server.
+- `"api"` — calls the site's official HTTP API (REST/GraphQL/etc).
+- `"script"` — drives a live, authenticated browser tab via DOM/JS evaluation.
+
+The classification surfaces in `site_describe` / `site_intents` / `site_open`
+output so the agent (and the human reviewing the registry) can see at a
+glance what cost / auth / reliability profile a given site has. See
+[`docs/PROTOCOL.md`](../docs/PROTOCOL.md#classify-the-method-up-front) for
+how to pick.
+
 ## Slot/host-data-dir mapping
 
 The wrapper auto-derives the host bind-mount path from the BrowserOS port:

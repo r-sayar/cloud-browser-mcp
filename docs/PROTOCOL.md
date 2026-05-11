@@ -17,6 +17,26 @@ implementation; this doc generalizes the pattern to N sites.
 
 ---
 
+## Classify the method up front
+
+Before writing any code, declare which of three implementation methods your
+site-MCP uses. Pick the cheapest one that gets the job done — the order
+below is preference order:
+
+| Method | When to pick it | Trade-off |
+|---|---|---|
+| `mcp` | An official / well-maintained MCP server already exists for this site (e.g. Anthropic-shipped Gmail MCP). | Cheapest, most reliable. **Almost always preferred when available.** |
+| `api` | The site exposes a public HTTP API (REST/GraphQL) and you have an API key / OAuth flow. | Reliable, but credentials become a separate concern. |
+| `script` | No MCP and no usable API — but you can sign in via a browser. Everything else falls here. | No API needed; works on any site you can log into. **Brittle if the DOM changes** — DOM recon (step 2) is non-trivial. |
+
+Record the choice in [`smart_browseros_mcp/recipes.py`](../smart_browseros_mcp/recipes.py)'s
+Recipe entry — `method` is a required field so the wrapper's `site_describe`
+can surface it to the agent (and to anyone reviewing the registry). All 15
+sites in the current registry are `method="script"` because no upstream
+MCP/API was good enough at the time of writing.
+
+---
+
 ## The 7-step recipe
 
 ### 1. Pick a slot, log in once

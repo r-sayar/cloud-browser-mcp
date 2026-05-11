@@ -12,13 +12,32 @@ the click sequence every time.
 
 To add a site: append an entry to RECIPES below. Match on host substrings, list
 the intents the corresponding site-MCP exposes, and (optionally) define
-URL-pattern→next_actions hints.
+URL-pattern→next_actions hints. The `method` field is **required** and labels
+how the site-MCP is implemented under the hood — see Method below.
+
+## Method (how the site-MCP gets its work done)
+
+Each recipe declares one of three implementation methods so the agent (and
+human reader) knows the cost/reliability/auth profile up front:
+
+- `"mcp"`    — built on top of an existing first/third-party MCP server (e.g.
+               an official Gmail MCP, Slack MCP). Cheapest, most reliable.
+- `"api"`    — calls the site's official HTTP API (REST/GraphQL). Reliable,
+               but needs an API key or OAuth.
+- `"script"` — drives the live, authenticated browser tab via DOM/JS
+               evaluation (BrowserOS `evaluate_script`). No API needed; works
+               on any site you can sign into; brittle if the DOM changes.
+               Default fallback when no MCP/API exists.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Callable
+from typing import Callable, Literal
 from urllib.parse import urlparse
+
+
+# Three categories — see the module docstring for definitions.
+Method = Literal["mcp", "api", "script"]
 
 
 @dataclass
@@ -37,6 +56,7 @@ class Recipe:
     url_match: list[str]                    # host/path substrings that mean "we're on this site"
     open_url: str                           # canonical landing URL (used by site_open)
     intents: list[Intent]                   # all intents this site exposes
+    method: Method                          # mcp | api | script — see module docstring
     # url_substring → list of tool names that are *especially* relevant on that URL
     context_hints: dict[str, list[str]] = field(default_factory=dict)
     # always-shown follow-on chain advice ("after composing, you can send, then verify")
@@ -68,6 +88,7 @@ def matches(recipe: Recipe, url: str) -> bool:
 RECIPES: list[Recipe] = [
     Recipe(
         id="gmail",
+        method="script",
         site_mcp="gmail",
         url_match=["mail.google.com"],
         open_url="https://mail.google.com/mail/u/0/#inbox",
@@ -96,6 +117,7 @@ RECIPES: list[Recipe] = [
     ),
     Recipe(
         id="outlook",
+        method="script",
         site_mcp="outlook",
         url_match=["outlook.office.com", "outlook.live.com", "outlook.office365.com"],
         open_url="https://outlook.office.com/mail/",
@@ -116,6 +138,7 @@ RECIPES: list[Recipe] = [
     ),
     Recipe(
         id="canvas",
+        method="script",
         site_mcp="canvas",
         url_match=["canvas.ucdavis.edu", "instructure.com"],
         open_url="https://canvas.ucdavis.edu/",
@@ -134,6 +157,7 @@ RECIPES: list[Recipe] = [
     ),
     Recipe(
         id="claude_ai",
+        method="script",
         site_mcp="claude-ai",
         url_match=["claude.ai"],
         open_url="https://claude.ai/recents",
@@ -155,6 +179,7 @@ RECIPES: list[Recipe] = [
     ),
     Recipe(
         id="fu_berlin",
+        method="script",
         site_mcp="fu-berlin",
         url_match=["webmail.zedat.fu-berlin.de", "fu-berlin.de", "blackboard.fu-berlin.de"],
         open_url="https://webmail.zedat.fu-berlin.de/",
@@ -171,6 +196,7 @@ RECIPES: list[Recipe] = [
     ),
     Recipe(
         id="amazon",
+        method="script",
         site_mcp="amazon",
         url_match=["amazon.com", "amazon.de", "amazon.co.uk"],
         open_url="https://www.amazon.com/",
@@ -191,6 +217,7 @@ RECIPES: list[Recipe] = [
     ),
     Recipe(
         id="linkedin",
+        method="script",
         site_mcp="linkedin",
         url_match=["linkedin.com"],
         open_url="https://www.linkedin.com/feed/",
@@ -208,6 +235,7 @@ RECIPES: list[Recipe] = [
     ),
     Recipe(
         id="notion",
+        method="script",
         site_mcp="notion",
         url_match=["notion.so", "notion.site"],
         open_url="https://www.notion.so/",
@@ -222,6 +250,7 @@ RECIPES: list[Recipe] = [
     ),
     Recipe(
         id="youtube",
+        method="script",
         site_mcp="youtube",
         url_match=["youtube.com", "youtu.be"],
         open_url="https://www.youtube.com/",
@@ -241,6 +270,7 @@ RECIPES: list[Recipe] = [
     ),
     Recipe(
         id="luma",
+        method="script",
         site_mcp="luma",
         url_match=["lu.ma", "luma.com"],
         open_url="https://lu.ma/home",
@@ -253,6 +283,7 @@ RECIPES: list[Recipe] = [
     ),
     Recipe(
         id="zoom",
+        method="script",
         site_mcp="zoom",
         url_match=["zoom.us"],
         open_url="https://zoom.us/meeting",
@@ -263,6 +294,7 @@ RECIPES: list[Recipe] = [
     ),
     Recipe(
         id="calendly",
+        method="script",
         site_mcp="calendly",
         url_match=["calendly.com"],
         open_url="https://calendly.com/event_types/user/me",
@@ -273,6 +305,7 @@ RECIPES: list[Recipe] = [
     ),
     Recipe(
         id="pubmed",
+        method="script",
         site_mcp="pubmed",
         url_match=["pubmed.ncbi.nlm.nih.gov"],
         open_url="https://pubmed.ncbi.nlm.nih.gov/",
@@ -284,6 +317,7 @@ RECIPES: list[Recipe] = [
     ),
     Recipe(
         id="skyscanner",
+        method="script",
         site_mcp="skyscanner",
         url_match=["skyscanner."],
         open_url="https://www.skyscanner.com/",
@@ -294,6 +328,7 @@ RECIPES: list[Recipe] = [
     ),
     Recipe(
         id="wikipedia",
+        method="script",
         site_mcp="wikipedia",
         url_match=["wikipedia.org"],
         open_url="https://en.wikipedia.org/",
