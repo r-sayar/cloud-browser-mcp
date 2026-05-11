@@ -277,16 +277,25 @@ minutes. The shared client in `mcp_lib/` makes new servers ~150 lines.
 ## Browser dashboard
 
 `dashboard.html` is a self-contained dark-mode page that embeds all three
-slot's noVNC views side-by-side, with health indicators per slot. Open it
-locally:
+slot's noVNC views side-by-side, with health indicators per slot. Two ways
+to run it:
 
 ```bash
-python3 -m http.server 5173    # or use the .claude/launch.json config
-open http://localhost:5173/dashboard.html
+# Plain static (no container control — just embeds noVNC):
+python3 -m http.server 5173
+
+# With container start/stop control (▶ / ⏻ buttons per tile):
+python3 scripts/dashboard_server.py --port 5173
 ```
 
-(VS Code / Cursor users: hit F5 — the included `.claude/launch.json` runs the
-http server and opens the dashboard.)
+Then `open http://localhost:5173/`.
+
+The control-plane server binds to `127.0.0.1` only and shells out to
+`docker compose` for start/stop. Status polls every 5 s; tooltips show the
+underlying state (`running` / `stopped` / `missing` / docker-daemon error).
+
+(VS Code / Cursor users: hit F5 — `.claude/launch.json` runs the
+control-plane server.)
 
 ---
 

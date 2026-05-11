@@ -247,6 +247,8 @@
           <span class="tile-name" contenteditable="true" spellcheck="false"></span>
           <span class="tile-ports">noVNC ${s.novnc} · MCP ${s.mcp} · CDP ${s.cdp}</span>
           <span class="tile-actions">
+            <button title="Start container" data-action="start" hidden>▶</button>
+            <button title="Stop container" data-action="stop" hidden>⏻</button>
             <button title="Reload" data-action="reload">⟳</button>
             <button title="Open in new tab" data-action="open">↗</button>
           </span>
@@ -268,6 +270,9 @@
 
       const dot = tile.querySelector(".dot");
       const iframe = tile.querySelector("iframe");
+      const startBtn = tile.querySelector('[data-action="start"]');
+      const stopBtn = tile.querySelector('[data-action="stop"]');
+
       let loaded = false;
       iframe.addEventListener("load", () => {
         loaded = true;
@@ -293,8 +298,71 @@
       });
       tile.querySelector(".tile-body").addEventListener("click", () => focus(s.id));
 
+      // Container-control buttons: only wired up when the dashboard is served
+      // by scripts/dashboard_server.py (which exposes /api/slots/<n>/{start,stop}).
+      // Pure-static loads (file://) keep them hidden — the API isn't reachable.
+      async function controlAction(action) {
+        startBtn.disabled = stopBtn.disabled = true;
+        dot.title = `${action}ing…`;
+        try {
+          const r = await fetch(`/api/slots/${s.id}/${action}`, { method: "POST" });
+          const j = await r.json().catch(() => ({}));
+          applySlotState(j.state);
+          if (action === "start") {
+            // Give the container a moment, then reload the iframe.
+            setTimeout(() => { iframe.src = iframe.src; }, 800);
+          }
+        } catch (_) {
+          dot.title = `${action} failed`;
+        } finally {
+          startBtn.disabled = stopBtn.disabled = false;
+        }
+      }
+      startBtn.addEventListener("click", e => { e.stopPropagation(); controlAction("start"); });
+      stopBtn.addEventListener("click", e => { e.stopPropagation(); controlAction("stop"); });
+
+      function applySlotState(state) {
+        // state: "running" | "stopped" | "missing" | "error: …" | undefined
+        if (state === "running") {
+          dot.classList.add("live"); dot.classList.remove("offline");
+          dot.title = "container running";
+          startBtn.hidden = true;  stopBtn.hidden = false;
+        } else if (state === "stopped" || state === "missing") {
+          dot.classList.add("offline"); dot.classList.remove("live");
+          dot.title = state === "missing" ? "container not created yet" : "container stopped";
+          startBtn.hidden = false; stopBtn.hidden = true;
+        } else if (typeof state === "string" && state.startsWith("error")) {
+          dot.classList.add("offline"); dot.classList.remove("live");
+          dot.title = state;
+          // Show start so the user can retry once they've fixed the underlying
+          // issue (typically docker daemon not running). Hide stop — there's
+          // nothing to stop.
+          startBtn.hidden = false; stopBtn.hidden = true;
+        }
+      }
+      tile._applySlotState = applySlotState;
+
       grid.appendChild(tile);
     });
+
+    // --- Optional control plane ---------------------------------------------
+    // If served via dashboard_server.py we poll /api/slots and surface
+    // start/stop buttons. On a static file:// load this just fails silently.
+    async function refreshSlots() {
+      try {
+        const r = await fetch("/api/slots", { cache: "no-store" });
+        if (!r.ok) return;
+        const data = await r.json();
+        for (const slotInfo of data) {
+          const tile = document.querySelector(`.tile[data-slot="${slotInfo.id}"]`);
+          if (tile && typeof tile._applySlotState === "function") {
+            tile._applySlotState(slotInfo.state);
+          }
+        }
+      } catch (_) { /* static-load — control plane unavailable */ }
+    }
+    refreshSlots();
+    setInterval(refreshSlots, 5000);
 
     function focus(id) {
       document.body.classList.add("focused");
