@@ -100,8 +100,12 @@ def get_cols(db: sqlite3.Connection, table: str):
 def transplant_table(arc_db_path, bos_db_path, table, encrypted_col, dry_run):
     """Merge encrypted rows from ARC's db into BrowserOS's db. Schema-robust."""
     print(f"\n=== {table} ({encrypted_col}) ===")
-    work = WORK_DIR / arc_db_path.name
+    work = WORK_DIR / bos_db_path.name
+    arc_snapshot = WORK_DIR / f"arc-{arc_db_path.name}"
     backup = bos_db_path.with_name(bos_db_path.name + f".bak-{TS}")
+
+    # Snapshot ARC's DB (it's live; avoid lock contention by reading a copy)
+    shutil.copy2(arc_db_path, arc_snapshot)
 
     if not dry_run:
         print(f"  backup -> {backup}")
@@ -112,7 +116,7 @@ def transplant_table(arc_db_path, bos_db_path, table, encrypted_col, dry_run):
         print(f"  [dry-run] skipping backup")
         shutil.copy2(bos_db_path, work)  # work copy is always needed for column intersection
 
-    arc_db = sqlite3.connect(f"file:{arc_db_path}?mode=ro", uri=True)
+    arc_db = sqlite3.connect(f"file:{arc_snapshot}?mode=ro", uri=True)
     bos_db = sqlite3.connect(work)
     arc_db.row_factory = sqlite3.Row
     bos_db.row_factory = sqlite3.Row
