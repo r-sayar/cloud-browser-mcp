@@ -71,6 +71,15 @@ HOST_DATA_DIR = os.environ.get("BROWSEROS_HOST_DATA_DIR", _default_host_data_dir
 
 mcp = FastMCP("smart-browseros")
 
+# Per-call token logging (sibling repo's mcp_lib). Best-effort: keep optional
+# so this server stays runnable standalone (copy-paste-friendly).
+try:
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from mcp_lib.usage_log import install_logger  # type: ignore
+    install_logger(mcp, "smart_browseros_mcp")
+except Exception:
+    pass
+
 
 # ─── BrowserOS HTTP MCP client (copy of mcp_lib.BOSClient) ─────────────────────
 class _BOSClient:

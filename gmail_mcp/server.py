@@ -36,10 +36,16 @@ from typing import Any
 import httpx
 from mcp.server.fastmcp import FastMCP
 
+# Repo root on sys.path so `mcp_lib.usage_log` resolves when this server is
+# launched directly from its own .venv (which has no mcp_lib on the path).
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from mcp_lib.usage_log import install_logger  # noqa: E402
+
 BROWSEROS_URL = os.environ.get("BROWSEROS_URL", "http://localhost:9201/mcp")
 GMAIL_URL = "https://mail.google.com/mail/u/0/#inbox"
 
 mcp = FastMCP("gmail")
+install_logger(mcp, "gmail_mcp")
 
 
 # ─── BrowserOS HTTP MCP client ─────────────────────────────────────────────────
