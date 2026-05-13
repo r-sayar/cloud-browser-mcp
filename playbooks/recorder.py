@@ -169,7 +169,7 @@ def _generate_playbook_from_log(log_path: str) -> str:
 
 async def record_until_success(
     name: str,
-    container: int = 1,
+    backend: str = None,
     success_fn=None,
     prompt: str = "",
     poll_interval: float = 2.0,
@@ -182,16 +182,18 @@ async def record_until_success(
     Saves the URL sequence as a JSON log and returns:
       {"ok": True/False, "events": [...], "log_path": "..."}
 
-    Example success_fn for FU Berlin login:
-      lambda url: url and "identity.fu-berlin.de" not in url and "fu-berlin.de" in url
+    Args:
+        backend: BrowserOS backend — 'hetzner', 'local_1', etc. Defaults to
+                 PLAYBOOK_BACKEND env var or 'hetzner'.
     """
-    port = 9200 + container
-    c = BOSClient(url=f"http://localhost:{port}/mcp")
+    from playbooks.config import get_backend
+    cfg = get_backend(backend)
+    c = BOSClient(url=cfg["bos_url"])
+    novnc_url = cfg["novnc_url"]
 
-    novnc_port = 6080 + container
     if prompt:
         print(prompt)
-    print(f"[recorder] Browser is at http://localhost:{novnc_port}/")
+    print(f"[recorder] Browser is at {novnc_url}")
     print(f"[recorder] Recording URL transitions. Will stop automatically on success, or press Ctrl-C.\n")
 
     events: list[dict] = []
@@ -234,7 +236,7 @@ async def record_until_success(
     with open(log_path, "w") as f:
         json.dump({
             "name": name,
-            "container": container,
+            "backend": backend or "default",
             "mode": "monitor",
             "succeeded": succeeded,
             "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -251,13 +253,15 @@ async def record_until_success(
 
 # ─── Monitor mode (user-driven, polls browser state) ──────────────────────────
 
-async def _monitor(name: str, container: int = 1, poll_interval: float = 2.0):
+async def _monitor(name: str, backend: str = None, poll_interval: float = 2.0):
     """Poll BrowserOS every `poll_interval` seconds and record URL/title transitions."""
-    port = 9200 + container
-    c = BOSClient(url=f"http://localhost:{port}/mcp")
+    from playbooks.config import get_backend
+    cfg = get_backend(backend)
+    c = BOSClient(url=cfg["bos_url"])
 
-    print(f"[recorder] Monitoring container {container} for '{name}'.")
-    print(f"[recorder] Perform the action in the browser at http://localhost:{6080 + container}/")
+    b = backend or "default"
+    print(f"[recorder] Monitoring '{name}' on backend '{b}'.")
+    print(f"[recorder] Perform the action in the browser at {cfg['novnc_url']}")
     print(f"[recorder] Press Ctrl-C when done.\n")
 
     events: list[dict] = []
@@ -298,7 +302,7 @@ async def _monitor(name: str, container: int = 1, poll_interval: float = 2.0):
     with open(log_path, "w") as f:
         json.dump({
             "name": name,
-            "container": container,
+            "backend": backend or "default",
             "mode": "monitor",
             "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "steps": [
@@ -319,7 +323,7 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Record browser actions as a playbook")
     parser.add_argument("name", help="Playbook name (used as filename)")
-    parser.add_argument("--container", type=int, default=1, help="BrowserOS slot (1/2/3)")
+    parser.add_argument("--backend", default=None, help="BrowserOS backend: hetzner, local_1, local_2, local_3 (default: hetzner)")
     parser.add_argument("--interval", type=float, default=2.0, help="Poll interval in seconds")
     args = parser.parse_args()
-    asyncio.run(_monitor(args.name, args.container, args.interval))
+    asyncio.run(_monitor(args.name, args.backend, args.interval))

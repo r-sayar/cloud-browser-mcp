@@ -26,6 +26,10 @@ _MATRIX_PATH = os.path.join(_REPO, "data", "1", "fu_berlin_code_matrix.txt")
 _PORTAL_LOGIN = "https://mycampus.imp.fu-berlin.de/portal/login"
 _SSO_HOST = "identity.fu-berlin.de"
 
+# Matrix file is in data/1/ (local container 1 volume). The file itself
+# is on the host filesystem, so it's accessible regardless of which backend
+# is running the browser.
+
 
 # ─── TAN matrix ───────────────────────────────────────────────────────────────
 
@@ -166,15 +170,20 @@ async def _handle_tan_matrix(c: BOSClient, pid: int) -> dict:
 
 # ─── main entry point ──────────────────────────────────────────────────────────
 
-async def run(container: int = 1) -> dict:
+async def run(backend: str = None) -> dict:
     """Hybrid FU Berlin SSO login.
 
     Navigates to the SSO page, asks you to fill username/password (browser
     autofill works), then automatically handles the TAN matrix challenge.
+
+    Args:
+        backend: BrowserOS backend to use — 'hetzner', 'local_1', 'local_2',
+                 'local_3'. Defaults to PLAYBOOK_BACKEND env var or 'hetzner'.
     """
-    novnc = 6080 + container
-    bos_port = 9200 + container
-    c = BOSClient(url=f"http://localhost:{bos_port}/mcp")
+    from playbooks.config import get_backend
+    cfg = get_backend(backend)
+    novnc = cfg["novnc_url"]
+    c = BOSClient(url=cfg["bos_url"])
 
     steps = []
 
@@ -207,7 +216,7 @@ async def run(container: int = 1) -> dict:
         # 3. Already past credentials? Jump straight to TAN check
         state = await _page_state(c, pid)
         if not state.get("hasTan") and not _is_logged_in(state.get("url", "")):
-            print(f"\n[fu_berlin_sso] SSO login page is open at http://localhost:{novnc}/")
+            print(f"\n[fu_berlin_sso] SSO login page is open at {novnc}")
             print("[fu_berlin_sso] Please fill in your username and password")
             print("               (browser autofill should work — just click Anmelden)\n")
 
