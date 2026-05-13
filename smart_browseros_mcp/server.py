@@ -53,7 +53,7 @@ from recipes import (
     find_recipe,
 )
 
-BROWSEROS_URL = os.environ.get("BROWSEROS_URL", "http://localhost:9201/mcp")
+BROWSEROS_URL = os.environ.get("BROWSEROS_URL", "http://cloud-browser:9201/mcp")
 CONTAINER_DATA = os.environ.get("BROWSEROS_CONTAINER_DATA", "/data")
 
 
