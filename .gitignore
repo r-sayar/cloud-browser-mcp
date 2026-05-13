@@ -51,3 +51,7 @@ zoom_mcp/
 
 # Unrelated working dir
 blast-&-pam/
+
+# Playbook recordings and credentials (contain secrets)
+playbooks/_recordings/
+data/credentials.json
