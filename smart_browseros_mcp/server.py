@@ -1,20 +1,24 @@
 #!/usr/bin/env python3
-"""smart_browseros_mcp — adds caching/affordances + a Docker file-upload bridge
+"""smart_browseros_mcp — adds caching/affordances + a Docker file-transfer bridge
 to the BrowserOS MCP.
 
-Three tools, no proxying. Wire this in alongside the native `browseros-N`
-connector in Claude Desktop. The agent uses native BrowserOS for primitives
-(snapshot, click, navigate, …) and these tools for:
+No proxying — wire this alongside the native `browseros-N` connector in Claude
+Desktop. The agent uses native BrowserOS for primitives (snapshot, click,
+navigate, …) and these tools for:
 
   • discovering high-level cached recipes when on a known site
   • uploading file *bytes* from Claude Desktop into a Dockerised BrowserOS
-    (where filesystem paths visible to the agent don't exist)
+  • downloading file *bytes* back from BrowserOS to Claude Desktop
 
 Tools:
-  - site_describe(page)       → matches URL → cached recipe + next_actions
-  - site_intents()            → full registry of recognised sites
-  - site_open(site_id)        → open a known site by id (e.g. "gmail")
-  - upload_file_inline(...)   → write bytes to the bind-mount and call BrowserOS upload_file
+  - site_describe(page)          → matches URL → cached recipe + next_actions
+  - site_intents()               → full registry of recognised sites
+  - site_open(site_id)           → open a known site by id (e.g. "gmail")
+  - gmail_compose_draft(...)     → pre-fill Gmail compose URL
+  - upload_file_inline(...)      → write bytes to the bind-mount, call BrowserOS upload_file
+  - download_file(page, element) → click a download link, return file bytes as base64
+  - list_downloads()             → list files waiting in the downloads folder
+  - read_download(filename)      → read an already-downloaded file as base64
 
 Architecture:
 
@@ -23,6 +27,9 @@ Architecture:
                                     └─ HTTP MCP ──► localhost:920N/mcp (BrowserOS)
                                                         │
                                                         └─ ./data/N/ host bind ↔ /data/ container
+
+Upload path:  Claude Desktop → base64 → host ./data/N/inline_uploads/ ↔ /data/inline_uploads/
+Download path: BrowserOS → /data/downloads/ ↔ host ./data/N/downloads/ → base64 → Claude Desktop
 
 Configuration (via env):
   BROWSEROS_URL              — http://localhost:9201/mcp   (slot 1 default)
@@ -34,11 +41,14 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import mimetypes
 import os
 import re
 import secrets
+import shutil
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -68,6 +78,33 @@ def _default_host_data_dir() -> str:
 
 
 HOST_DATA_DIR = os.environ.get("BROWSEROS_HOST_DATA_DIR", _default_host_data_dir())
+
+# Staging dirs older than this are cleaned up before each new upload.
+_UPLOAD_STAGING_MAX_AGE = int(os.environ.get("BROWSEROS_UPLOAD_MAX_AGE", "600"))
+
+# Max size returned inline as base64; larger files get a host_path hint instead.
+_INLINE_MAX_BYTES = int(os.environ.get("BROWSEROS_INLINE_MAX_BYTES", str(20 * 1024 * 1024)))
+
+
+def _downloads_dir() -> Path:
+    """Host path for browser downloads: ./data/N/downloads/"""
+    return Path(HOST_DATA_DIR) / "downloads"
+
+
+def _container_downloads() -> str:
+    return f"{CONTAINER_DATA}/downloads"
+
+
+def _cleanup_old_upload_staging() -> None:
+    """Remove upload staging dirs older than _UPLOAD_STAGING_MAX_AGE seconds."""
+    staging = Path(HOST_DATA_DIR) / "inline_uploads"
+    if not staging.is_dir():
+        return
+    cutoff = time.time() - _UPLOAD_STAGING_MAX_AGE
+    for child in staging.iterdir():
+        if child.is_dir() and child.stat().st_mtime < cutoff:
+            shutil.rmtree(child, ignore_errors=True)
+
 
 mcp = FastMCP("smart-browseros")
 
@@ -234,6 +271,8 @@ async def site_describe(page: int) -> str:
     }, indent=2, ensure_ascii=False)
 
 
+_SITE_INTENTS_CACHE: str | None = None
+
 @mcp.tool()
 async def site_intents() -> str:
     """Return the full registry of recognised sites and their cached intents.
@@ -242,17 +281,20 @@ async def site_intents() -> str:
     when planning a multi-site task (e.g. "search the web, then send a Gmail
     summary").
     """
+    global _SITE_INTENTS_CACHE
+    if _SITE_INTENTS_CACHE is not None:
+        return _SITE_INTENTS_CACHE
     out = []
     for r in RECIPES:
         out.append({
             "id": r.id,
             "site_mcp": r.site_mcp,
-            "method": r.method,  # mcp | api | script
+            "method": r.method,
             "url_match": r.url_match,
             "open_url": r.open_url,
             "intents": [{"tool": i.tool, "args": i.args, "summary": i.summary} for i in r.intents],
         })
-    return json.dumps({
+    _SITE_INTENTS_CACHE = json.dumps({
         "sites": out,
         "count": len(out),
         "next_actions": [
@@ -260,6 +302,7 @@ async def site_intents() -> str:
             "site_describe(page) — once on a site, get contextual hints",
         ],
     }, indent=2, ensure_ascii=False)
+    return _SITE_INTENTS_CACHE
 
 
 @mcp.tool()
@@ -305,6 +348,46 @@ async def site_open(site_id: str, page: int | None = None) -> str:
 
 
 @mcp.tool()
+async def gmail_compose_draft(
+    to: str,
+    subject: str = "",
+    body: str = "",
+    cc: str = "",
+    bcc: str = "",
+    page: int | None = None,
+) -> str:
+    """Open a Gmail compose window pre-filled with to/subject/body/cc/bcc.
+
+    Uses Gmail's compose URL parameters — faster than clicking through the UI.
+    Requires the user to already be signed in to Gmail. Never auto-sends.
+    Returns the page_id of the compose tab.
+    """
+    from urllib.parse import urlencode
+    params: dict[str, str] = {"view": "cm", "fs": "1"}
+    if to:      params["to"]  = to
+    if subject: params["su"]  = subject
+    if body:    params["body"] = body
+    if cc:      params["cc"]  = cc
+    if bcc:     params["bcc"] = bcc
+    url = "https://mail.google.com/mail/?" + urlencode(params)
+
+    if page is not None:
+        await _client().call("navigate_page", {"page": page, "url": url})
+        return json.dumps({"ok": True, "page_id": page, "url": url})
+
+    resp = await _client().call("new_page", {"url": url})
+    text = resp if isinstance(resp, str) else json.dumps(resp)
+    m = _PAGE_ID_RE.search(text)
+    new_pid = int(m.group(1)) if m else -1
+    return json.dumps({
+        "ok": True,
+        "page_id": new_pid,
+        "url": url,
+        "next_actions": ["Fill the compose form if needed, then click Send"],
+    })
+
+
+@mcp.tool()
 async def upload_file_inline(
     page: int,
     element: int,
@@ -334,6 +417,12 @@ async def upload_file_inline(
         data = base64.b64decode(file_b64, validate=True)
     except Exception as e:
         return json.dumps({"ok": False, "error": f"invalid base64: {e}"})
+
+    # Opportunistic cleanup of old staging dirs (best-effort, non-fatal)
+    try:
+        _cleanup_old_upload_staging()
+    except Exception:
+        pass
 
     # Paths
     token = secrets.token_hex(6)
@@ -386,13 +475,217 @@ async def upload_file_inline(
 
 
 @mcp.tool()
+async def download_file(
+    page: int,
+    element: int,
+) -> str:
+    """Click a download link or button and return the file bytes as base64.
+
+    Bridges the Docker isolation gap for downloads — the mirror image of
+    upload_file_inline. Flow:
+
+        1. Tell BrowserOS to click `element` on `page` and intercept the
+           browser download, saving it to /data/downloads/ inside the container.
+        2. The file appears on the host at {HOST_DATA_DIR}/downloads/ via the
+           bind mount.
+        3. Read the bytes and return them as base64 so Claude Desktop can save
+           or process the file without needing direct filesystem access.
+
+    Returns {ok, filename, size_bytes, mime_type, file_b64} on success.
+    For files larger than ~20 MB only host_path is returned (no inline bytes).
+
+    Args:
+        page:    tab id (from list_pages)
+        element: element id of the download link / button (from take_snapshot)
+    """
+    dl_dir = _downloads_dir()
+    dl_dir.mkdir(parents=True, exist_ok=True)
+
+    # Snapshot existing files so we can detect the newly created one.
+    before: set[Path] = set(dl_dir.iterdir())
+
+    try:
+        result = await _client().call("download_file", {
+            "page": page,
+            "element": element,
+            "path": _container_downloads(),
+        })
+    except Exception as e:
+        return json.dumps({
+            "ok": False,
+            "error": f"BrowserOS download_file failed: {e}",
+            "hint": "Ensure BrowserOS version supports download_file with a path argument.",
+        }, indent=2)
+
+    # Resolve the saved file from BrowserOS result or by diff-ing the directory.
+    host_file: Path | None = None
+
+    if isinstance(result, dict):
+        raw_path = result.get("path") or result.get("destination") or result.get("filePath")
+        if raw_path:
+            rel = str(raw_path).replace(CONTAINER_DATA, "").lstrip("/")
+            candidate = Path(HOST_DATA_DIR) / rel
+            if candidate.is_file():
+                host_file = candidate
+
+    if host_file is None:
+        after: set[Path] = set(dl_dir.iterdir())
+        new_files = after - before
+        if new_files:
+            host_file = max(new_files, key=lambda p: p.stat().st_mtime)
+
+    if host_file is None or not host_file.is_file():
+        return json.dumps({
+            "ok": False,
+            "error": "no new file found in downloads directory after triggering the download",
+            "bos_result": result,
+            "downloads_dir": str(dl_dir),
+        }, indent=2)
+
+    size = host_file.stat().st_size
+    mime_type = mimetypes.guess_type(host_file.name)[0] or "application/octet-stream"
+
+    if size > _INLINE_MAX_BYTES:
+        return json.dumps({
+            "ok": True,
+            "filename": host_file.name,
+            "size_bytes": size,
+            "mime_type": mime_type,
+            "file_b64": None,
+            "host_path": str(host_file),
+            "note": f"File exceeds {_INLINE_MAX_BYTES // 1024 // 1024} MB inline limit — read from host_path directly.",
+            "next_actions": [
+                f"read_download('{host_file.name}') — retry; or access host_path on the host filesystem",
+            ],
+        }, indent=2)
+
+    file_b64 = base64.b64encode(host_file.read_bytes()).decode()
+    return json.dumps({
+        "ok": True,
+        "filename": host_file.name,
+        "size_bytes": size,
+        "mime_type": mime_type,
+        "file_b64": file_b64,
+        "host_path": str(host_file),
+        "next_actions": [
+            "Decode file_b64 (base64) to get the raw bytes",
+            "list_downloads() — see all files in the downloads folder",
+        ],
+    }, indent=2)
+
+
+@mcp.tool()
+async def list_downloads() -> str:
+    """List files in the BrowserOS downloads folder.
+
+    Shows everything in {HOST_DATA_DIR}/downloads/ — files saved there by
+    download_file() or by the browser's own download manager. Use this to
+    discover files available to read_download(), or to confirm that a download
+    landed successfully.
+    """
+    dl_dir = _downloads_dir()
+    if not dl_dir.is_dir():
+        return json.dumps({
+            "files": [],
+            "count": 0,
+            "downloads_dir": str(dl_dir),
+            "note": "downloads directory does not exist yet",
+        }, indent=2)
+
+    entries = []
+    for p in sorted(dl_dir.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True):
+        if p.is_file():
+            st = p.stat()
+            entries.append({
+                "name": p.name,
+                "size_bytes": st.st_size,
+                "modified": datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).isoformat(),
+                "mime_type": mimetypes.guess_type(p.name)[0] or "application/octet-stream",
+            })
+
+    return json.dumps({
+        "files": entries,
+        "count": len(entries),
+        "downloads_dir": str(dl_dir),
+        "next_actions": (
+            [f"read_download('{entries[0]['name']}') — read the newest file"] if entries else
+            ["download_file(page, element) — trigger a browser download first"]
+        ),
+    }, indent=2)
+
+
+@mcp.tool()
+async def read_download(filename: str) -> str:
+    """Read a file from the downloads folder and return its bytes as base64.
+
+    Use this to retrieve a file that was already downloaded (by download_file()
+    or the browser's own download manager). Returns base64-encoded bytes plus
+    MIME type so Claude Desktop can process or save the file.
+
+    Args:
+        filename: file name inside the downloads folder (from list_downloads)
+    """
+    dl_dir = _downloads_dir()
+    host_file = dl_dir / filename
+
+    # Basic path traversal guard
+    try:
+        host_file = host_file.resolve()
+        dl_dir.resolve()
+        host_file.relative_to(dl_dir.resolve())
+    except (ValueError, RuntimeError):
+        return json.dumps({"ok": False, "error": "invalid filename (path traversal rejected)"})
+
+    if not host_file.is_file():
+        available = [p.name for p in dl_dir.iterdir() if p.is_file()] if dl_dir.is_dir() else []
+        return json.dumps({
+            "ok": False,
+            "error": f"file not found: {filename}",
+            "available": available[:20],
+            "next_actions": ["list_downloads() — see what files are available"],
+        }, indent=2)
+
+    size = host_file.stat().st_size
+    mime_type = mimetypes.guess_type(host_file.name)[0] or "application/octet-stream"
+
+    if size > _INLINE_MAX_BYTES:
+        return json.dumps({
+            "ok": True,
+            "filename": host_file.name,
+            "size_bytes": size,
+            "mime_type": mime_type,
+            "file_b64": None,
+            "host_path": str(host_file),
+            "note": f"File exceeds {_INLINE_MAX_BYTES // 1024 // 1024} MB inline limit.",
+        }, indent=2)
+
+    file_b64 = base64.b64encode(host_file.read_bytes()).decode()
+    return json.dumps({
+        "ok": True,
+        "filename": host_file.name,
+        "size_bytes": size,
+        "mime_type": mime_type,
+        "file_b64": file_b64,
+        "host_path": str(host_file),
+    }, indent=2)
+
+
+@mcp.tool()
 async def smart_browseros_info() -> str:
-    """Diagnostic: BROWSEROS_URL, host data dir, container path, recipe count."""
+    """Diagnostic: BROWSEROS_URL, host data dir, container paths, recipe count."""
+    dl_dir = _downloads_dir()
+    staging_dir = Path(HOST_DATA_DIR) / "inline_uploads"
     return json.dumps({
         "browseros_url": BROWSEROS_URL,
         "host_data_dir": HOST_DATA_DIR,
         "host_data_dir_exists": Path(HOST_DATA_DIR).is_dir(),
         "container_data": CONTAINER_DATA,
+        "downloads_dir": str(dl_dir),
+        "downloads_dir_exists": dl_dir.is_dir(),
+        "downloads_count": sum(1 for p in dl_dir.iterdir() if p.is_file()) if dl_dir.is_dir() else 0,
+        "upload_staging_dir": str(staging_dir),
+        "upload_staging_max_age_seconds": _UPLOAD_STAGING_MAX_AGE,
+        "inline_max_bytes": _INLINE_MAX_BYTES,
         "recipe_count": len(RECIPES),
         "recipes": [r.id for r in RECIPES],
     }, indent=2)
